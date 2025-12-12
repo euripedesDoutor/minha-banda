@@ -94,8 +94,6 @@ class JunglePitchShifter {
     
     private lfoNode1: AudioBufferSourceNode | null = null;
     private lfoNode2: AudioBufferSourceNode | null = null;
-    
-    private isConnected: boolean = false;
 
     constructor(context: BaseAudioContext) {
         this.context = context;
@@ -141,8 +139,6 @@ class JunglePitchShifter {
         // Defaults
         this.delay1.delayTime.value = this.bufferTime / 2;
         this.delay2.delayTime.value = this.bufferTime / 2;
-        
-        this.isConnected = true;
     }
 
     private createFadeBuffer(time: number, sampleRate: number): AudioBuffer {

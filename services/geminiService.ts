@@ -1,5 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 
+declare const process: {
+  env: {
+    API_KEY: string;
+  }
+};
+
 // Helper to convert blob to base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
