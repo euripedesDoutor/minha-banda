@@ -11,4 +11,9 @@ services:
     container_name: minha-banda-container
     ports:
       - "8000:80"
+    networks:
+      - datacount-network
     restart: unless-stopped
+networks:
+ datacount-network:
+   external: true
