@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Upload, Play, Pause, Download, Mic2, Music, Zap, Plus, Minus, Volume2, Link as LinkIcon, FileAudio, Loader2, Sliders, Gauge } from 'lucide-react';
+import { Upload, Play, Pause, Download, Mic2, Music, Zap, Plus, Minus, Volume2, Link as LinkIcon, FileAudio, Loader2, Sliders, Gauge, Sparkles, Bot, X } from 'lucide-react';
 import { AudioState, AudioSettings } from './types';
 import { audioEngine } from './services/audioEngine';
+import { analyzeAudio } from './services/geminiService';
 import { Visualizer } from './components/Visualizer';
 
 const formatTime = (seconds: number) => {
@@ -44,6 +45,10 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  
+  // AI Analysis State
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Ref to track file
   const fileRef = useRef<File | null>(null);
@@ -58,6 +63,7 @@ const App: React.FC = () => {
 
       fileRef.current = file;
       setAudioState(prev => ({ ...prev, isLoaded: false, fileName: file.name }));
+      setAnalysisResult(null); // Reset analysis
       
       // Reset settings slightly for new file, keep volume
       setSettings(prev => ({...prev, detune: 0, eqLow: 0, eqMid: 0, eqHigh: 0, speed: 1}));
@@ -104,6 +110,8 @@ const App: React.FC = () => {
         });
         // Reset settings slightly for new file
          setSettings(prev => ({...prev, detune: 0, eqLow: 0, eqMid: 0, eqHigh: 0, speed: 1}));
+         setAnalysisResult(null);
+         fileRef.current = null; // URL mode might not support analysis if CORS blocks blob access, but we try
     } catch (error) {
         alert("Erro ao carregar URL. Verifique se o link é direto (mp3/wav) e permite acesso CORS.");
     } finally {
@@ -234,6 +242,26 @@ const App: React.FC = () => {
       } finally {
         setIsExporting(false);
       }
+  };
+
+  // AI Analysis Handler
+  const handleAnalyzeAudio = async () => {
+    if (!fileRef.current) {
+        alert("Por favor, carregue um arquivo local para análise (URLs podem não funcionar devido a CORS).");
+        return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+
+    try {
+        const result = await analyzeAudio(fileRef.current);
+        setAnalysisResult(result);
+    } catch (error) {
+        setAnalysisResult("Não foi possível analisar o áudio. Verifique sua chave de API.");
+    } finally {
+        setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -369,6 +397,7 @@ const App: React.FC = () => {
                             onClick={() => {
                                 setAudioState(prev => ({...prev, isLoaded: false, isPlaying: false, fileName: null}));
                                 audioEngine.stop();
+                                setAnalysisResult(null);
                             }}
                             className="cursor-pointer p-2 bg-studio-800/80 hover:bg-studio-700 rounded-lg backdrop-blur-md border border-studio-600 transition-colors" 
                             title="Carregar nova música"
@@ -381,36 +410,78 @@ const App: React.FC = () => {
 
             {/* Track Info & Progress */}
             {audioState.isLoaded && (
-                <div className="bg-studio-800 p-6 rounded-2xl border border-studio-700 shadow-xl">
-                    <div className="flex justify-between items-end mb-2">
-                        <div className="overflow-hidden">
-                            <h2 className="text-xl font-bold text-white truncate max-w-md">{audioState.fileName}</h2>
-                            <span className="text-xs font-mono text-neon-blue">
-                                {settings.vocalRemoval ? "MODE: KARAOKE (CROSSOVER FILTER)" : "MODE: FULL MIX"}
-                            </span>
-                        </div>
-                        <div className="font-mono text-studio-300">
-                            {formatTime(audioState.currentTime)} / {formatTime(audioState.duration)}
-                        </div>
-                    </div>
-                    
-                    <input 
-                        type="range" 
-                        min={0} 
-                        max={audioState.duration || 100} 
-                        step={0.1}
-                        value={audioState.currentTime}
-                        onChange={handleSeek}
-                        className="w-full mb-6 accent-neon-pink"
-                    />
+                <div className="bg-studio-800 p-6 rounded-2xl border border-studio-700 shadow-xl relative overflow-hidden">
+                    {/* Background glow */}
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-neon-blue/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
-                    <div className="flex justify-center items-center gap-8">
-                        <button 
-                            onClick={togglePlay}
-                            className="w-16 h-16 rounded-full bg-white text-studio-900 flex items-center justify-center hover:scale-105 hover:shadow-[0_0_20px_rgba(255,255,255,0.4)] transition-all active:scale-95"
-                        >
-                            {audioState.isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1" />}
-                        </button>
+                    <div className="relative z-10">
+                        <div className="flex justify-between items-start mb-4">
+                            <div className="overflow-hidden flex-1">
+                                <h2 className="text-xl font-bold text-white truncate max-w-md">{audioState.fileName}</h2>
+                                <span className="text-xs font-mono text-neon-blue inline-flex items-center gap-1 mt-1">
+                                    <div className={`w-2 h-2 rounded-full ${settings.vocalRemoval ? 'bg-neon-green' : 'bg-studio-500'}`} />
+                                    {settings.vocalRemoval ? "VOCAL REMOVED" : "ORIGINAL MIX"}
+                                </span>
+                            </div>
+                            
+                            {/* AI Analysis Trigger */}
+                            {uploadMode === 'file' && (
+                                <button
+                                    onClick={handleAnalyzeAudio}
+                                    disabled={isAnalyzing}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-studio-700/50 hover:bg-studio-600 border border-studio-600 hover:border-neon-pink/50 rounded-full text-xs font-mono text-studio-200 transition-all group"
+                                >
+                                    {isAnalyzing ? (
+                                        <Loader2 className="w-3 h-3 animate-spin text-neon-pink" />
+                                    ) : (
+                                        <Sparkles className="w-3 h-3 text-neon-pink group-hover:scale-110 transition-transform" />
+                                    )}
+                                    {isAnalyzing ? 'Analisando...' : 'AI Analyze'}
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Analysis Result Box */}
+                        {analysisResult && (
+                            <div className="mb-6 bg-studio-900/80 p-4 rounded-xl border border-studio-600 animate-in fade-in slide-in-from-top-2">
+                                <div className="flex justify-between items-center mb-2">
+                                    <div className="flex items-center gap-2 text-neon-pink font-bold text-sm">
+                                        <Bot className="w-4 h-4" />
+                                        <span>Análise Gemini AI</span>
+                                    </div>
+                                    <button onClick={() => setAnalysisResult(null)} className="text-studio-500 hover:text-white">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                                <div className="text-sm text-studio-200 leading-relaxed whitespace-pre-line font-mono">
+                                    {analysisResult}
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div className="flex justify-between text-xs font-mono text-studio-400 mb-2">
+                            <span>{formatTime(audioState.currentTime)}</span>
+                            <span>{formatTime(audioState.duration)}</span>
+                        </div>
+                        
+                        <input 
+                            type="range" 
+                            min={0} 
+                            max={audioState.duration || 100} 
+                            step={0.1}
+                            value={audioState.currentTime}
+                            onChange={handleSeek}
+                            className="w-full mb-8 accent-neon-pink hover:accent-neon-blue transition-colors"
+                        />
+
+                        <div className="flex justify-center items-center gap-8">
+                            <button 
+                                onClick={togglePlay}
+                                className="w-16 h-16 rounded-full bg-white text-studio-900 flex items-center justify-center hover:scale-105 hover:shadow-[0_0_25px_rgba(255,255,255,0.3)] transition-all active:scale-95 z-10"
+                            >
+                                {audioState.isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1" />}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
