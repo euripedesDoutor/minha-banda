@@ -1,0 +1,27 @@
+server {
+    listen 80;
+    
+    # Define o diretório raiz onde os arquivos estáticos do React estão
+    root /usr/share/nginx/html;
+    index index.html index.htm;
+
+    # Configuração principal para Single Page Application (SPA)
+    # Se o arquivo solicitado não existir, redireciona para index.html
+    # Isso permite que o React Router gerencie as rotas no frontend
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Configuração de cache para arquivos estáticos (imagens, css, js)
+    location ~* \.(?:ico|css|js|gif|jpe?g|png|woff2?|eot|ttf|svg)$ {
+        expires 6M;
+        access_log off;
+        add_header Cache-Control "public";
+    }
+
+    # Páginas de erro padrão
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}

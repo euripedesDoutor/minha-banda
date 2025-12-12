@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
+// Fix for TS2580: Cannot find name 'process'
 declare const process: {
   env: {
     API_KEY: string;
