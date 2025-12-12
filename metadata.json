@@ -1,0 +1,7 @@
+{
+  "name": "Minha Banda Studio",
+  "description": "Uma estação de trabalho de áudio alimentada por IA para remover vocais, ajustar tom/tempo e analisar músicas.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
