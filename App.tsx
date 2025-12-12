@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, Play, Pause, Download, Mic2, Music, Zap, Plus, Minus, Volume2, Link as LinkIcon, FileAudio, Loader2, Sliders } from 'lucide-react';
+import { Upload, Play, Pause, Download, Mic2, Music, Zap, Plus, Minus, Volume2, Link as LinkIcon, FileAudio, Loader2, Sliders, Gauge } from 'lucide-react';
 import { AudioState, AudioSettings } from './types';
 import { audioEngine } from './services/audioEngine';
 import { Visualizer } from './components/Visualizer';
@@ -35,7 +35,8 @@ const App: React.FC = () => {
     volume: 0.8,
     eqLow: 0,
     eqMid: 0,
-    eqHigh: 0
+    eqHigh: 0,
+    speed: 1
   });
 
   const [uploadMode, setUploadMode] = useState<'file' | 'url'>('file');
@@ -59,7 +60,7 @@ const App: React.FC = () => {
       setAudioState(prev => ({ ...prev, isLoaded: false, fileName: file.name }));
       
       // Reset settings slightly for new file, keep volume
-      setSettings(prev => ({...prev, detune: 0, eqLow: 0, eqMid: 0, eqHigh: 0}));
+      setSettings(prev => ({...prev, detune: 0, eqLow: 0, eqMid: 0, eqHigh: 0, speed: 1}));
 
       setIsLoading(true);
       try {
@@ -102,7 +103,7 @@ const App: React.FC = () => {
             fileName: "Áudio via Link"
         });
         // Reset settings slightly for new file
-         setSettings(prev => ({...prev, detune: 0, eqLow: 0, eqMid: 0, eqHigh: 0}));
+         setSettings(prev => ({...prev, detune: 0, eqLow: 0, eqMid: 0, eqHigh: 0, speed: 1}));
     } catch (error) {
         alert("Erro ao carregar URL. Verifique se o link é direto (mp3/wav) e permite acesso CORS.");
     } finally {
@@ -252,7 +253,7 @@ const App: React.FC = () => {
             </div>
         </div>
         <div className="text-xs text-studio-500 font-mono hidden md:block">
-            v1.2.1 • STUDIO REMASTER
+            v1.3.0 • SPEED CONTROL
         </div>
       </header>
 
@@ -486,6 +487,33 @@ const App: React.FC = () => {
                                  <span className="text-xs font-mono w-8 text-right text-white">{settings.eqHigh > 0 ? '+' : ''}{settings.eqHigh}</span>
                              </div>
                          </div>
+                    </div>
+
+                    {/* Speed Control */}
+                    <div className="bg-studio-900 p-4 rounded-xl border border-studio-700 flex flex-col gap-3">
+                        <div className="flex justify-between items-center text-studio-300">
+                            <div className="flex items-center gap-2">
+                                <Gauge className="w-4 h-4" />
+                                <span className="text-xs font-bold uppercase tracking-widest">Velocidade (Tempo)</span>
+                            </div>
+                            <span className={`font-mono font-bold text-lg ${settings.speed !== 1 ? 'text-neon-pink' : 'text-white'}`}>
+                                {settings.speed.toFixed(2)}x
+                            </span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min={0.5} 
+                            max={1.5} 
+                            step={0.05}
+                            value={settings.speed}
+                            onChange={(e) => updateSettings({ speed: parseFloat(e.target.value) })}
+                            className="w-full h-2 bg-studio-700 rounded-lg appearance-none cursor-pointer accent-neon-pink"
+                        />
+                        <div className="flex justify-between text-[10px] text-studio-500 font-mono">
+                            <span>0.5x</span>
+                            <span onClick={() => updateSettings({ speed: 1 })} className="cursor-pointer hover:text-white">RESET</span>
+                            <span>1.5x</span>
+                        </div>
                     </div>
 
                     {/* Pitch Control (Buttons) */}

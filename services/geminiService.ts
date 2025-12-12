@@ -15,13 +15,8 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 
 export const analyzeAudio = async (audioFile: File): Promise<string> => {
   try {
-    const p = (window as any).process;
-    const apiKey = p?.env?.API_KEY;
-    if (!apiKey) {
-      return "Erro: Chave de API não configurada. Configure process.env.API_KEY.";
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
+    // Access the API key directly so Vite can replace it with the string literal from .env
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     // We trim the file to the first 2MB to ensure quick analysis and avoid timeouts/limits for the demo
     // In a real production app we might handle this differently.

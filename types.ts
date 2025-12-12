@@ -13,4 +13,5 @@ export interface AudioSettings {
   eqLow: number; // dB -12 to 12
   eqMid: number; // dB -12 to 12
   eqHigh: number; // dB -12 to 12
+  speed: number; // Playback rate (0.5 to 2.0)
 }

@@ -178,7 +178,7 @@ class JunglePitchShifter {
         if (this.lfoNode1) { try { this.lfoNode1.stop(); } catch(e){} }
         if (this.lfoNode2) { try { this.lfoNode2.stop(); } catch(e){} }
 
-        if (semitones === 0) {
+        if (Math.abs(semitones) < 0.01) {
             // Bypass logic: No modulation, just pass through one line
             this.fade1.gain.value = 1;
             this.fade2.gain.value = 0;
@@ -189,20 +189,6 @@ class JunglePitchShifter {
         }
 
         // Calculate Modulation Depth (Fixed Inversion Logic)
-        // Pitch Ratio = 2^(semitones/12)
-        //
-        // To pitch UP (Ratio > 1), we need to read FASTER.
-        // Delay must DECREASE over time.
-        // Sawtooth is FALLING (1 -> 0).
-        // Delay(t) = ModGain * Saw(t).
-        // Rate = ModGain * (Slope of Saw) = ModGain * (-1).
-        // We need Rate < 0 (Decreasing delay).
-        // So ModGain must be POSITIVE.
-        // Formula: (pitchRatio - 1) * bufferTime
-        //
-        // Example Ratio 2 (Up): (2-1) = 1. Positive Gain. Correct.
-        // Example Ratio 0.5 (Down): (0.5-1) = -0.5. Negative Gain. Correct.
-        
         const pitchRatio = Math.pow(2, semitones / 12);
         const modGainValue = (pitchRatio - 1) * this.bufferTime;
 
@@ -214,7 +200,6 @@ class JunglePitchShifter {
         this.delay2.delayTime.value = this.bufferTime;
 
         // Start LFOs (BufferSources)
-        // We use loop=true to create the continuous oscillation
         this.lfoNode1 = this.context.createBufferSource();
         this.lfoNode1.buffer = this.delayModBuffer;
         this.lfoNode1.loop = true;
@@ -250,7 +235,6 @@ class JunglePitchShifter {
         fadeLfo2.start(startTime + (this.bufferTime / 2));
         
         // Keep references to stop them later
-        // We attach fade LFOs to the main LFO properties for cleanup simplicity in this scope
         const oldStop1 = this.lfoNode1.stop.bind(this.lfoNode1);
         this.lfoNode1.stop = () => { oldStop1(); try { fadeLfo1.stop(); } catch(e){} };
         
@@ -303,6 +287,7 @@ export class AudioEngine {
   private startTime: number = 0;
   private pausedAt: number = 0;
   private isPlaying: boolean = false;
+  private currentSpeed: number = 1.0;
 
   constructor() {
      // Lazy initialization in getContext()
@@ -331,6 +316,7 @@ export class AudioEngine {
     this.pausedAt = 0;
     this.startTime = 0;
     this.isPlaying = false;
+    this.currentSpeed = 1.0;
 
     const arrayBuffer = await file.arrayBuffer();
     this.audioBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -344,6 +330,7 @@ export class AudioEngine {
     this.pausedAt = 0;
     this.startTime = 0;
     this.isPlaying = false;
+    this.currentSpeed = 1.0;
 
     try {
         const response = await fetch(url);
@@ -369,19 +356,29 @@ export class AudioEngine {
           throw new Error("Seu navegador não suporta exportação de áudio (OfflineAudioContext).");
       }
 
+      // Calculate output length based on speed
+      const newDuration = this.audioBuffer.duration / settings.speed;
+      const lengthFrames = Math.ceil(newDuration * this.audioBuffer.sampleRate);
+
       const offlineCtx = new OfflineContextClass(
           2, 
-          this.audioBuffer.length,
+          lengthFrames,
           this.audioBuffer.sampleRate
       );
 
       const source = offlineCtx.createBufferSource();
       source.buffer = this.audioBuffer;
-      source.playbackRate.value = 1.0;
+      source.playbackRate.value = settings.speed;
 
-      // Pitch Shifter
+      // Pitch Shifter with Speed Compensation
       const pitchShifter = new JunglePitchShifter(offlineCtx);
-      pitchShifter.setPitch(settings.detune / 100);
+      // Speed change naturally shifts pitch by: 12 * log2(speed)
+      // To preserve pitch (Time Stretch), we subtract this natural shift.
+      const naturalPitchShift = 12 * Math.log2(settings.speed);
+      const userDetuneSemis = settings.detune / 100;
+      const finalPitchShift = userDetuneSemis - naturalPitchShift;
+      
+      pitchShifter.setPitch(finalPitchShift);
 
       source.connect(pitchShifter.input);
       let nextSource: AudioNode = pitchShifter.output;
@@ -430,34 +427,32 @@ export class AudioEngine {
           leftGain.connect(invLLR);
           invLLR.connect(rightGain);
 
-          // Phase Artifact Smoothing (The requested feature)
+          // Phase Artifact Smoothing
           const artifactLpf = offlineCtx.createBiquadFilter();
           artifactLpf.type = 'lowpass';
-          artifactLpf.frequency.value = 12000; // Cut extreme highs to reduce phasing noise
+          artifactLpf.frequency.value = 12000; 
           artifactLpf.Q.value = 0.5;
           
-          // Connect L-R signal to smoother
           leftGain.connect(artifactLpf);
 
           // Route to sides
           const sideL = offlineCtx.createGain();
-          sideL.gain.value = 1.8; // Increased gain to compensate for signal loss
-          artifactLpf.connect(sideL); // Connect filtered signal
+          sideL.gain.value = 1.8; 
+          artifactLpf.connect(sideL); 
 
           const sideR = offlineCtx.createGain();
           sideR.gain.value = 1.8;
-          // Note: For R, we need the inverted filtered signal. 
-          // Since we filtered (L-R), we can just invert the output of the filter for R.
+          
           const invFilter = offlineCtx.createGain();
           invFilter.gain.value = -1;
           artifactLpf.connect(invFilter);
           invFilter.connect(sideR);
 
-          sideL.connect(mainMerger, 0, 0); // High Side -> Left
-          sideR.connect(mainMerger, 0, 1); // High Inverted Side -> Right
+          sideL.connect(mainMerger, 0, 0); 
+          sideR.connect(mainMerger, 0, 1); 
 
       } else {
-          // Bypass: Ensure we split stereo source to merge correctly
+          // Bypass
           const bypassSplitter = offlineCtx.createChannelSplitter(2);
           nextSource.connect(bypassSplitter);
           bypassSplitter.connect(mainMerger, 0, 0); // L -> L
@@ -484,7 +479,7 @@ export class AudioEngine {
       const masterGain = offlineCtx.createGain();
       masterGain.gain.value = settings.volume;
       
-      // Wiring: Merger -> Low -> Mid -> High -> Master
+      // Wiring
       mainMerger.connect(eqLow);
       eqLow.connect(eqMid);
       eqMid.connect(eqHigh);
@@ -505,11 +500,18 @@ export class AudioEngine {
 
     this.sourceNode = ctx.createBufferSource();
     this.sourceNode.buffer = this.audioBuffer;
-    this.sourceNode.playbackRate.value = 1.0;
+    this.currentSpeed = settings.speed;
+    this.sourceNode.playbackRate.value = this.currentSpeed;
     this.sourceNode.detune.value = 0; 
 
     this.pitchShifter = new JunglePitchShifter(ctx);
-    this.pitchShifter.setPitch(settings.detune / 100); 
+    
+    // Pitch Compensation Logic
+    const naturalPitchShift = 12 * Math.log2(settings.speed);
+    const userDetuneSemis = settings.detune / 100;
+    const finalPitchShift = userDetuneSemis - naturalPitchShift;
+    
+    this.pitchShifter.setPitch(finalPitchShift); 
     
     this.sourceNode.connect(this.pitchShifter.input);
     let nextSource: AudioNode = this.pitchShifter.output;
@@ -556,14 +558,14 @@ export class AudioEngine {
         // 4. Artifact Smoothing (New)
         this.artifactLpfNode = ctx.createBiquadFilter();
         this.artifactLpfNode.type = 'lowpass';
-        this.artifactLpfNode.frequency.value = 12000; // Softens high-end phase artifacts
+        this.artifactLpfNode.frequency.value = 12000; 
         this.artifactLpfNode.Q.value = 0.5;
 
         sideSignal.connect(this.artifactLpfNode);
 
         // 5. Gain Compensation
         this.sideGain = ctx.createGain();
-        this.sideGain.gain.value = 1.8; // Boost instrumental presence
+        this.sideGain.gain.value = 1.8; 
         this.artifactLpfNode.connect(this.sideGain);
 
         this.sideGain.connect(this.mergerNode, 0, 0);
@@ -627,11 +629,12 @@ export class AudioEngine {
 
     this.createProcessingChain(settings);
 
+    // Calculate time based on speed
     const startOffset = offset !== undefined ? offset : this.pausedAt;
-    this.startTime = ctx.currentTime - startOffset;
+    this.startTime = ctx.currentTime - (startOffset / this.currentSpeed);
     
     if (this.sourceNode) {
-        this.sourceNode.start(0, startOffset % this.audioBuffer.duration);
+        this.sourceNode.start(0, startOffset);
         this.isPlaying = true;
     }
   }
@@ -643,7 +646,9 @@ export class AudioEngine {
       } catch (e) { }
       this.isPlaying = false;
       if (this.audioContext) {
-        this.pausedAt = this.audioContext.currentTime - this.startTime;
+        // Calculate where we paused, accounting for speed
+        const elapsedRealTime = this.audioContext.currentTime - this.startTime;
+        this.pausedAt = elapsedRealTime * this.currentSpeed;
       }
     }
   }
@@ -662,8 +667,27 @@ export class AudioEngine {
       if (!this.audioContext) return;
       
       if (this.sourceNode && this.isPlaying) {
+          // Update Pitch (Compensated for speed)
+          const naturalPitchShift = 12 * Math.log2(settings.speed);
+          const userDetuneSemis = settings.detune / 100;
+          const finalPitchShift = userDetuneSemis - naturalPitchShift;
+
           if (this.pitchShifter) {
-              this.pitchShifter.setPitch(settings.detune / 100);
+              this.pitchShifter.setPitch(finalPitchShift);
+          }
+
+          // Update Speed dynamically
+          if (settings.speed !== this.currentSpeed) {
+              const now = this.audioContext.currentTime;
+              // Current track position
+              const currentOffset = (now - this.startTime) * this.currentSpeed;
+              
+              this.currentSpeed = settings.speed;
+              this.sourceNode.playbackRate.value = this.currentSpeed;
+              
+              // Adjust startTime to prevent jump in position
+              // newStartTime = now - (currentOffset / newSpeed)
+              this.startTime = now - (currentOffset / this.currentSpeed);
           }
       }
       
@@ -680,8 +704,11 @@ export class AudioEngine {
   public getCurrentTime(): number {
     if (!this.audioContext) return 0;
     if (!this.isPlaying) return this.pausedAt;
-    const currentTime = this.audioContext.currentTime - this.startTime;
-    return Math.max(0, currentTime);
+    
+    const realTimeElapsed = this.audioContext.currentTime - this.startTime;
+    const trackTime = realTimeElapsed * this.currentSpeed;
+    
+    return Math.max(0, trackTime);
   }
 
   private disconnect() {
