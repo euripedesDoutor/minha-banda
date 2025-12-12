@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  minha-banda-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minha-banda-container
+    ports:
+      - "8000:80"
+    restart: unless-stopped
+    # Note: Environment variables for API_KEY would need to be injected 
+    # via build args or a runtime script since this is a static site.
+    # The current app uses a client-side shim in index.html.
